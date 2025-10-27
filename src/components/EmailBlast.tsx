@@ -12,6 +12,8 @@ import { Mail, Send, Paperclip, X, CheckSquare, AlertCircle } from 'lucide-react
 import { toast } from 'sonner@2.0.3';
 import { Alert, AlertDescription } from './ui/alert';
 import logo from 'figma:asset/4d778675bb728bb5595e9394dadabf32025b40c1.png';
+import { mailgunService, type EmailRecipient, type EmailAttachment } from '../lib/mailgun';
+import { emailCampaignsApi, emailLogsApi } from '../lib/api';
 
 interface Lead {
   id: number;
@@ -90,23 +92,37 @@ export function EmailBlast({ leads, isAdmin = false }: EmailBlastProps) {
       return;
     }
 
+    // Check Mailgun configuration
+    if (!process.env.VITE_MAILGUN_API_KEY || !process.env.VITE_MAILGUN_DOMAIN) {
+      toast.error('Mailgun not configured', {
+        description: 'Please set VITE_MAILGUN_API_KEY and VITE_MAILGUN_DOMAIN environment variables'
+      });
+      return;
+    }
+
     const selectedRecipients = activeLeads.filter(lead => selectedLeads.includes(lead.id));
-    
+
     // Show sending toast
     const sendingToast = toast.loading(`Sending emails to ${selectedLeads.length} recipient(s)...`);
-    
+
     try {
-      const { emailApi } = await import('../utils/api');
-      
-      // Convert File objects to base64 for the backend
-      const attachmentData = await Promise.all(
+      // Create email campaign record
+      const campaign = await emailCampaignsApi.create({
+        subject: emailSubject,
+        body: emailBody,
+        recipients_count: selectedRecipients.length,
+        status: 'sending'
+      });
+
+      // Convert File objects to EmailAttachment format
+      const emailAttachments: EmailAttachment[] = await Promise.all(
         attachments.map(async (file) => {
-          return new Promise((resolve, reject) => {
+          return new Promise<EmailAttachment>((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => {
               resolve({
                 filename: file.name,
-                content: reader.result, // This will be base64 data URL
+                content: reader.result as string,
                 contentType: file.type,
                 size: file.size
               });
@@ -116,70 +132,105 @@ export function EmailBlast({ leads, isAdmin = false }: EmailBlastProps) {
           });
         })
       );
-      
-      const response = await emailApi.sendBlast(selectedRecipients, emailSubject, emailBody, attachmentData);
-      
+
+      // Transform leads to EmailRecipient format
+      const recipients: EmailRecipient[] = selectedRecipients.map(lead => ({
+        id: lead.id,
+        name: lead.name,
+        email: lead.email,
+        company: lead.company
+      }));
+
+      // Create HTML email body with template
+      const htmlBody = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: linear-gradient(to right, #ff77a4, #ff5a8f); padding: 40px; text-align: center; color: white;">
+            <div style="background: white; border-radius: 12px; padding: 20px; display: inline-block;">
+              <img src="cid:logo" alt="Happy Teeth Support Services" style="max-width: 200px; height: auto;" />
+            </div>
+          </div>
+          <div style="padding: 40px; background: white;">
+            <div style="white-space: pre-wrap; line-height: 1.6; color: #333;">
+              ${emailBody.replace(/\n/g, '<br>')}
+            </div>
+            <div style="margin-top: 40px; padding-top: 20px; border-top: 2px solid #ff77a4;">
+              <p style="font-weight: bold; color: #ff77a4; margin-bottom: 5px;">
+                Happy Teeth Support Services
+              </p>
+              <p style="color: #666; font-size: 14px; margin: 0;">
+                ${process.env.VITE_FROM_EMAIL || 'contact@happyteeth.com'}
+              </p>
+            </div>
+          </div>
+          <div style="background: #fdf2f8; padding: 20px; text-align: center;">
+            <p style="color: #666; font-size: 12px; margin: 0;">
+              This email was sent from KreativLab CRM
+            </p>
+          </div>
+        </div>
+      `;
+
+      // Send bulk email via Mailgun
+      const result = await mailgunService.sendBulkEmail(
+        recipients,
+        emailSubject,
+        htmlBody,
+        emailBody, // plain text version
+        emailAttachments
+      );
+
+      // Update campaign status
+      await emailCampaignsApi.updateStatus(
+        campaign.id,
+        result.success ? 'sent' : 'failed',
+        result.successCount,
+        result.failureCount
+      );
+
+      // Log individual email results
+      const emailLogs = result.results.map(emailResult => ({
+        campaign_id: campaign.id,
+        lead_id: recipients.find(r => r.email === emailResult.email)?.id || 0,
+        email: emailResult.email,
+        subject: emailSubject,
+        status: emailResult.success ? ('sent' as const) : ('failed' as const),
+        error_message: emailResult.error || null,
+        sent_at: emailResult.success ? new Date().toISOString() : null
+      }));
+
+      await emailLogsApi.bulkCreate(emailLogs);
+
       // Dismiss loading toast
       toast.dismiss(sendingToast);
-      
-      // Show success with details
-      if (response.success) {
-        const successCount = response.successCount || 0;
-        const failureCount = response.failureCount || 0;
-        
-        if (failureCount > 0) {
-          // Check if it's an auth error
-          const authError = response.results?.some(r => 
-            !r.success && r.error?.includes('Gmail Auth Failed')
-          );
-          
-          if (authError) {
-            if (isAdmin) {
-              toast.error(
-                '❌ Gmail Authentication Failed\n\n' +
-                'Please enable 2-Step Verification and generate a new App Password at:\n' +
-                'https://myaccount.google.com/apppasswords',
-                { duration: 10000 }
-              );
-            } else {
-              toast.error('❌ Email sending failed. Please contact support.');
-            }
-          } else {
-            toast.warning(`Sent to ${successCount} of ${selectedLeads.length} recipient(s). ${failureCount} failed.`);
-          }
-        } else {
-          toast.success(`✅ Successfully sent ${successCount} email(s)`);
-        }
+
+      // Show results
+      if (result.failureCount > 0) {
+        toast.warning(`Sent to ${result.successCount} of ${selectedLeads.length} recipient(s). ${result.failureCount} failed.`);
       } else {
-        // Check if error message contains auth failure info
-        const errorMsg = response.error || 'Failed to send emails';
-        if (errorMsg.includes('Authentication Failed') || errorMsg.includes('2-Step Verification')) {
-          if (isAdmin) {
-            toast.error(
-              '❌ Gmail Setup Required\n\n' +
-              '1. Go to https://myaccount.google.com/security\n' +
-              '2. Enable 2-Step Verification\n' +
-              '3. Generate App Password at https://myaccount.google.com/apppasswords\n' +
-              '4. Update credentials in server code',
-              { duration: 15000 }
-            );
-          } else {
-            toast.error('❌ Email sending failed. Please contact support.');
-          }
-        } else {
-          toast.error(errorMsg);
-        }
+        toast.success(`✅ Successfully sent ${result.successCount} email(s)`);
       }
-      
+
       setIsEmailDialogOpen(false);
       setEmailSubject('Partnership Opportunity with Happy Teeth Support Services');
       setEmailBody(DEFAULT_EMAIL_TEMPLATE);
       setAttachments([]);
       setSelectedLeads([]);
-    } catch (error) {
+    } catch (error: any) {
       toast.dismiss(sendingToast);
       console.error('Error sending email:', error);
-      toast.error('Failed to send email blast');
+
+      if (error.message?.includes('Mailgun') || error.message?.includes('API key')) {
+        if (isAdmin) {
+          toast.error('Mailgun Configuration Error', {
+            description: 'Please check your Mailgun API key and domain configuration',
+            duration: 10000
+          });
+        } else {
+          toast.error('❌ Email sending failed. Please contact support.');
+        }
+      } else {
+        toast.error('Failed to send email blast');
+      }
     }
   };
 
@@ -201,32 +252,33 @@ export function EmailBlast({ leads, isAdmin = false }: EmailBlastProps) {
         <img src={logo} alt="Happy Teeth Logo" className="w-16 h-16 rounded-lg" />
       </div>
 
-      {/* Gmail Setup Alert - Only visible to admin */}
+      {/* Mailgun Setup Alert - Only visible to admin */}
       {isAdmin && (
         <Alert className="mb-6 border-2 border-amber-500 bg-amber-50">
           <AlertCircle className="h-5 w-5 text-amber-600" />
           <AlertDescription>
             <div className="space-y-2">
               <p className="text-amber-900">
-                <strong>⚠️ Gmail SMTP Setup Instructions (Admin Only)</strong>
+                <strong>⚠️ Mailgun Email Setup Instructions (Admin Only)</strong>
               </p>
               <p className="text-sm text-amber-800">
-                If emails fail to send with "Authentication Failed" error, ensure <strong>sshappyteeth@gmail.com</strong> has:
+                Email sending is now powered by Mailgun. Ensure the following environment variables are set:
               </p>
               <ol className="text-sm text-amber-800 list-decimal list-inside space-y-1 ml-2">
-                <li>2-Step Verification enabled at <a href="https://myaccount.google.com/security" target="_blank" rel="noopener noreferrer" className="underline text-[#ff77a4] hover:text-[#ff5a8f]">Google Security Settings</a></li>
-                <li>Valid App Password generated at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" className="underline text-[#ff77a4] hover:text-[#ff5a8f]">App Passwords</a></li>
-                <li>App Password updated in <code className="bg-amber-100 px-1 rounded text-xs">/supabase/functions/server/index.tsx</code></li>
+                <li><code className="bg-amber-100 px-1 rounded text-xs">VITE_MAILGUN_API_KEY</code> - Your Mailgun API key</li>
+                <li><code className="bg-amber-100 px-1 rounded text-xs">VITE_MAILGUN_DOMAIN</code> - Your verified Mailgun domain</li>
+                <li><code className="bg-amber-100 px-1 rounded text-xs">VITE_FROM_EMAIL</code> - Sender email address</li>
+                <li><code className="bg-amber-100 px-1 rounded text-xs">VITE_FROM_NAME</code> - Sender name</li>
               </ol>
               <details className="mt-2 pt-2 border-t border-amber-200">
                 <summary className="text-xs text-amber-700 cursor-pointer hover:text-amber-900">Show detailed setup instructions</summary>
                 <div className="mt-2 p-2 bg-amber-100 rounded text-xs text-amber-900 space-y-1">
-                  <p><strong>Step 1:</strong> Go to Google Account → Security → Enable 2-Step Verification</p>
-                  <p><strong>Step 2:</strong> Search for "App passwords" in Google Account settings</p>
-                  <p><strong>Step 3:</strong> Generate new app password (select "Mail" and your device)</p>
-                  <p><strong>Step 4:</strong> Copy the 16-character password (remove spaces)</p>
-                  <p><strong>Step 5:</strong> Update GMAIL_CONFIG.appPassword in server code</p>
-                  <p className="pt-1 border-t border-amber-300 mt-2"><strong>Note:</strong> Regular Gmail password will NOT work. Must use App Password.</p>
+                  <p><strong>Step 1:</strong> Sign up for <a href="https://www.mailgun.com/" target="_blank" rel="noopener noreferrer" className="underline text-[#ff77a4]">Mailgun</a></p>
+                  <p><strong>Step 2:</strong> Add and verify your domain in Mailgun dashboard</p>
+                  <p><strong>Step 3:</strong> Get your API key from Settings → API Keys</p>
+                  <p><strong>Step 4:</strong> Set environment variables in your .env file</p>
+                  <p><strong>Step 5:</strong> Test email sending functionality</p>
+                  <p className="pt-1 border-t border-amber-300 mt-2"><strong>Note:</strong> Mailgun provides better deliverability and tracking than SMTP.</p>
                 </div>
               </details>
             </div>

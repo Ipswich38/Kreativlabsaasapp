@@ -6,7 +6,7 @@ import { WebScraper } from './components/WebScraper';
 import { Dashboard } from './components/Dashboard';
 import { Login } from './components/Login';
 import { AdminDashboard } from './components/AdminDashboard';
-import { leadsApi } from './utils/api';
+import { leadsApi } from './lib/api';
 import { toast, Toaster } from 'sonner@2.0.3';
 
 type UserType = 'user' | 'admin' | null;

@@ -1,19 +1,19 @@
-import { LayoutDashboard, Mail, Search, Settings as SettingsIcon } from 'lucide-react';
+import { LayoutDashboard, Mail, Search, LogOut, Users, Send } from 'lucide-react';
 import { Button } from './ui/button';
 import logo from 'figma:asset/4d778675bb728bb5595e9394dadabf32025b40c1.png';
 
 interface SidebarProps {
   activeView: string;
   onViewChange: (view: string) => void;
+  onLogout?: () => void;
 }
 
-export function Sidebar({ activeView, onViewChange }: SidebarProps) {
+export function Sidebar({ activeView, onViewChange, onLogout }: SidebarProps) {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'leads', label: 'Leads Manager', icon: LayoutDashboard },
-    { id: 'email-contacts', label: 'Email Contacts', icon: Mail },
+    { id: 'contacts', label: 'Contacts Management', icon: Users },
+    { id: 'email-blast', label: 'Email Blast', icon: Send },
     { id: 'lead-generation', label: 'Lead Generation', icon: Search },
-    { id: 'settings', label: 'Settings', icon: SettingsIcon }
   ];
 
   return (
@@ -55,7 +55,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
         </div>
       </nav>
 
-      <div className="p-4 border-t border-slate-200">
+      <div className="p-4 border-t border-slate-200 space-y-3">
         <div className="flex items-center gap-3">
           <img src={logo} alt="Happy Teeth Logo" className="w-10 h-10 rounded-full" />
           <div>
@@ -63,6 +63,17 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
             <p className="text-xs text-slate-500">Administrator</p>
           </div>
         </div>
+        {onLogout && (
+          <Button 
+            onClick={onLogout}
+            variant="outline"
+            className="w-full gap-2 text-slate-600 hover:text-slate-900"
+            size="sm"
+          >
+            <LogOut className="w-4 h-4" />
+            Logout
+          </Button>
+        )}
       </div>
     </aside>
   );

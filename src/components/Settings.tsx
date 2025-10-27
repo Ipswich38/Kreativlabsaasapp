@@ -7,22 +7,23 @@ import { Alert, AlertDescription } from './ui/alert';
 import { Mail, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { AutoLogoFix } from './AutoLogoFix';
 
 export function Settings() {
   const [gmailAddress, setGmailAddress] = useState('sshappyteeth@gmail.com');
-  const [appPassword, setAppPassword] = useState('');
+  const [appPassword, setAppPassword] = useState('wvnbgpmnkupothrh');
   const [senderName, setSenderName] = useState('Happy Teeth Support Services');
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testEmail, setTestEmail] = useState('');
   const [configSaved, setConfigSaved] = useState(false);
 
-  // Load existing config on mount
+  // Load existing config on mount and auto-save if needed
   useEffect(() => {
-    loadConfig();
+    loadConfigAndAutoSave();
   }, []);
 
-  const loadConfig = async () => {
+  const loadConfigAndAutoSave = async () => {
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-aed69b82/gmail-config`,
@@ -37,10 +38,49 @@ export function Settings() {
         setGmailAddress(data.config.gmailAddress || 'sshappyteeth@gmail.com');
         setSenderName(data.config.senderName || 'Happy Teeth Support Services');
         setConfigSaved(true);
-        // Don't load password for security
+        console.log('✅ Gmail configuration already saved');
+      } else {
+        // Config doesn't exist - auto-save it now
+        console.log('📧 Gmail not configured yet - auto-saving credentials...');
+        await autoSaveCredentials();
       }
     } catch (error) {
       console.error('Error loading config:', error);
+      // Try auto-save on error too
+      await autoSaveCredentials();
+    }
+  };
+
+  const autoSaveCredentials = async () => {
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-aed69b82/gmail-config`,
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${publicAnonKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            gmailAddress: 'sshappyteeth@gmail.com',
+            appPassword: 'wvnbgpmnkupothrh',
+            senderName: 'Happy Teeth Support Services',
+          }),
+        }
+      );
+
+      const data = await response.json();
+      if (data.success) {
+        setConfigSaved(true);
+        toast.success('🎉 Gmail automatically configured! Email sending is now active.', {
+          duration: 5000,
+        });
+        console.log('✅ Auto-saved Gmail configuration successfully');
+      } else {
+        console.error('Failed to auto-save config:', data.error);
+      }
+    } catch (error) {
+      console.error('Error auto-saving credentials:', error);
     }
   };
 
@@ -131,7 +171,43 @@ export function Settings() {
         <p className="text-slate-600">Configure your Gmail SMTP settings for email campaigns</p>
       </div>
 
+      {/* Production Ready Banner */}
+      {!configSaved && (
+        <Alert className="mb-6 border-2 border-[#ff77a4] bg-[#ffe9f2]">
+          <AlertTriangle className="h-5 w-5 text-[#ff77a4]" />
+          <AlertDescription>
+            <div className="space-y-2">
+              <p className="font-semibold text-[#ff77a4]">
+                🚀 Final Step: Save Your Gmail Configuration
+              </p>
+              <p className="text-sm text-slate-700">
+                Your app password is pre-filled below. Click <strong>"Save Configuration"</strong> to activate email sending. This takes 5 seconds!
+              </p>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {configSaved && (
+        <Alert className="mb-6 border-2 border-green-500 bg-green-50">
+          <CheckCircle2 className="h-5 w-5 text-green-600" />
+          <AlertDescription>
+            <div className="space-y-2">
+              <p className="font-semibold text-green-800">
+                ✅ Gmail Configured Successfully!
+              </p>
+              <p className="text-sm text-green-700">
+                Your CRM is 100% production ready. Go to <strong>Email Contacts</strong> to start sending campaigns.
+              </p>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="space-y-6">
+        {/* Email Logo Fix - Top Priority */}
+        <AutoLogoFix />
+
         {/* Gmail Configuration */}
         <Card className="border-[#ff77a4]/30 bg-[#ffe9f2]/30">
           <CardHeader>
@@ -214,10 +290,16 @@ export function Settings() {
             <Button 
               onClick={handleSave}
               disabled={isSaving}
-              className="w-full bg-[#ff77a4] hover:bg-[#ff5a8f]"
+              className="w-full bg-[#ff77a4] hover:bg-[#ff5a8f] text-lg py-6"
             >
-              {isSaving ? 'Saving...' : 'Save Configuration'}
+              {isSaving ? '💾 Saving...' : configSaved ? '✓ Update Configuration' : '🚀 Save Configuration & Activate Email'}
             </Button>
+            
+            {!configSaved && (
+              <p className="text-center text-sm text-[#ff77a4] font-semibold">
+                ⬆️ Click this button to enable email sending
+              </p>
+            )}
 
             {/* Test Email Section */}
             {configSaved && (
@@ -250,13 +332,13 @@ export function Settings() {
         <Card>
           <CardHeader>
             <CardTitle>Lead Generation</CardTitle>
-            <CardDescription>Free web scraping with OpenStreetMap</CardDescription>
+            <CardDescription>Automated dental clinic discovery</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="bg-emerald-50 border border-emerald-300 rounded-lg p-4">
-              <h4 className="text-emerald-900 mb-2">🆓 FREE Web Scraping Enabled!</h4>
+              <h4 className="text-emerald-900 mb-2">✅ Lead Discovery Enabled!</h4>
               <p className="text-sm text-emerald-700">
-                Your CRM uses OpenStreetMap's free Nominatim API for lead generation. 
+                Your CRM uses an intelligent multi-source system for lead generation. 
                 No API keys required. Just enter a location and search for dental clinics!
               </p>
             </div>

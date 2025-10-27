@@ -83,11 +83,14 @@ export const scraperApi = {
     state: string;
     mustHavePhone: boolean;
     mustHaveWebsite: boolean;
+    mustHaveEmail: boolean;
   }) => {
-    const data = await apiCall('/scrape-google-maps', {
+    console.log('📤 API Call to /scrape-leads with params:', params);
+    const data = await apiCall('/scrape-leads', {
       method: 'POST',
       body: JSON.stringify(params),
     });
+    console.log('📥 API Response from /scrape-leads:', data);
     // Return full response including mode and metadata
     return data;
   },

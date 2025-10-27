@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -6,46 +6,90 @@ import { Card } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
-import { Search, Download, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Search, Download, AlertCircle, CheckCircle2, Settings } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
+import logo from 'figma:asset/4d778675bb728bb5595e9394dadabf32025b40c1.png';
+import { GoogleMapsApiHelper } from './GoogleMapsApiHelper';
 
 interface WebScraperProps {
+  scrapedLeads: any[];
   onScrapedLeads: (leads: any[]) => void;
+  onImportLeads: (leads: any[]) => void;
 }
 
-export function WebScraper({ onScrapedLeads }: WebScraperProps) {
+export function WebScraper({ scrapedLeads, onScrapedLeads, onImportLeads }: WebScraperProps) {
   const [zipCode, setZipCode] = useState('');
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [scrapedData, setScrapedData] = useState<any[]>([]);
-  const [mustHavePhone, setMustHavePhone] = useState(false); // Changed default to false for OSM
-  const [mustHaveWebsite, setMustHaveWebsite] = useState(false); // Changed default to false for OSM
-  const [dataSource, setDataSource] = useState<'openstreetmap' | 'google' | null>(null);
+  const [mustHavePhone, setMustHavePhone] = useState(false);
+  const [mustHaveWebsite, setMustHaveWebsite] = useState(false);
+  const [mustHaveEmail, setMustHaveEmail] = useState(false);
+  const [showApiHelper, setShowApiHelper] = useState(false);
+
+  // Use persistent scrapedLeads from props instead of local state
+
+  const testApiConnection = async () => {
+    try {
+      toast.info('Testing Google Maps API connection...');
+      const response = await fetch(`https://${await (await import('../utils/supabase/info')).projectId}.supabase.co/functions/v1/make-server-aed69b82/test-google-api`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await import('../utils/supabase/info')).publicAnonKey}`
+        }
+      });
+      const data = await response.json();
+      
+      if (data.success) {
+        toast.success('✅ Google Maps API is working!', {
+          description: data.message
+        });
+      } else {
+        toast.error('❌ Google Maps API Error', {
+          description: data.error,
+          duration: 8000
+        });
+        setShowApiHelper(true);
+      }
+    } catch (error: any) {
+      toast.error('Connection test failed', {
+        description: error.message
+      });
+    }
+  };
 
   const handleSearch = async () => {
-    if (!zipCode.trim() && !city.trim()) {
-      toast.error('Please enter at least a ZIP code or city');
+    // Flexible validation: Allow ZIP code, State, or City+State combinations
+    const hasZipCode = zipCode.trim();
+    const hasState = state.trim();
+    const hasCity = city.trim();
+    
+    if (!hasZipCode && !hasState && !hasCity) {
+      toast.error('Please enter at least one location field (ZIP code, State, or City)');
       return;
     }
 
     setIsLoading(true);
-    setScrapedData([]);
-    setDataSource(null);
+    onScrapedLeads([]);
     
     try {
       const { scraperApi } = await import('../utils/api');
+      
+      console.log('🔍 Sending scrape request:', { zipCode, city, state, mustHavePhone, mustHaveWebsite, mustHaveEmail });
       
       const response = await scraperApi.scrapeGoogleMaps({
         zipCode,
         city,
         state,
         mustHavePhone,
-        mustHaveWebsite
+        mustHaveWebsite,
+        mustHaveEmail
       });
       
-      setScrapedData(response.results || []);
-      setDataSource(response.mode || 'google');
+      console.log('📥 Scrape response:', response);
+      
+      onScrapedLeads(response.results || []);
       
       if ((response.results || []).length === 0) {
         if (response.message) {
@@ -55,26 +99,32 @@ export function WebScraper({ onScrapedLeads }: WebScraperProps) {
         }
       } else {
         const count = response.results.length;
-        const source = response.mode === 'openstreetmap' ? 'OpenStreetMap (FREE)' : 'Google Maps';
-        toast.success(`Found ${count} dental clinic${count !== 1 ? 's' : ''} from ${source}`);
+        toast.success(`Found ${count} dental clinic${count !== 1 ? 's' : ''} in your target area`);
       }
     } catch (error: any) {
       console.error('Error scraping dental clinics:', error);
-      toast.error(error.message || 'Failed to search for dental clinics');
+      
+      // Special handling for API key restriction errors
+      if (error.message?.includes('referer restrictions') || error.message?.includes('REQUEST_DENIED')) {
+        toast.error('Google Maps API Key Configuration Error', {
+          description: 'The API key has referrer restrictions. Please create a server-side API key without restrictions. See FIX_GOOGLE_MAPS_API_KEY.md for instructions.',
+          duration: 10000,
+        });
+      } else {
+        toast.error(error.message || 'Failed to search for dental clinics');
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleImportLeads = () => {
-    if (scrapedData.length === 0) {
+    if (scrapedLeads.length === 0) {
       toast.error('No data to import');
       return;
     }
 
-    onScrapedLeads(scrapedData);
-    toast.success(`Imported ${scrapedData.length} leads to database`);
-    setScrapedData([]);
+    onImportLeads(scrapedLeads);
     setZipCode('');
     setCity('');
     setState('');
@@ -98,52 +148,20 @@ export function WebScraper({ onScrapedLeads }: WebScraperProps) {
               <p className="text-sm text-slate-900">Happy Teeth Support Services</p>
               <p className="text-xs text-slate-500">Administrative Excellence Team</p>
             </div>
-            <div className="w-10 h-10 rounded-full bg-[#ff77a4] flex items-center justify-center">
-              <span className="text-white text-sm">HT</span>
-            </div>
+            <img src={logo} alt="Happy Teeth Logo" className="w-10 h-10 rounded-lg" />
           </div>
         </div>
       </div>
 
       <div className="p-8 max-w-5xl">
-        {/* Info banner about free OpenStreetMap */}
-        <div className="mb-6 bg-emerald-50 border-2 border-emerald-200 rounded-lg p-4">
-          <div className="flex items-start gap-3">
-            <CheckCircle2 className="h-5 w-5 text-emerald-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <h4 className="text-emerald-900 mb-1">🆓 FREE OpenStreetMap Integration</h4>
-              <p className="text-sm text-emerald-700 mb-2">
-                This CRM uses <strong>OpenStreetMap</strong> - completely FREE, no API key required! Search anywhere in the world with no costs.
-              </p>
-              <div className="flex flex-wrap gap-3 text-xs text-emerald-700">
-                <span>✅ No API key needed</span>
-                <span>✅ Unlimited searches</span>
-                <span>✅ Global coverage</span>
-                <span>✅ $0 cost forever</span>
-              </div>
-              <details className="mt-3">
-                <summary className="text-sm text-emerald-800 cursor-pointer hover:text-emerald-900">
-                  Want premium data? Click for Google Maps upgrade info
-                </summary>
-                <div className="mt-2 p-3 bg-emerald-100 rounded text-sm text-emerald-900">
-                  <p className="mb-2"><strong>Google Maps API adds:</strong></p>
-                  <ul className="list-disc list-inside space-y-1 text-emerald-800 mb-2">
-                    <li>90%+ phone coverage (vs 30-60% with OSM)</li>
-                    <li>80%+ website coverage (vs 20-40% with OSM)</li>
-                    <li>Star ratings and review counts</li>
-                    <li>More complete business data</li>
-                  </ul>
-                  <p className="text-xs">
-                    Cost: $200/month free credit (~540 searches) • See <strong>SETUP_GUIDE.md</strong>
-                  </p>
-                </div>
-              </details>
-            </div>
-          </div>
-        </div>
-        
         <Card className="p-8">
           <h2 className="text-slate-900 mb-6">Find Dental Clinics</h2>
+          
+          <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-sm text-blue-900">
+              <strong>💡 Search Tip:</strong> Enter <strong>ZIP code</strong> (e.g., 31320) <strong>OR</strong> State (e.g., GA) <strong>OR</strong> City + State (e.g., Atlanta, GA)
+            </p>
+          </div>
           
           <div className="grid gap-6 md:grid-cols-3 mb-6">
             <div className="grid gap-2">
@@ -164,7 +182,7 @@ export function WebScraper({ onScrapedLeads }: WebScraperProps) {
                 id="city"
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
-                placeholder="Midway"
+                placeholder="Atlanta"
               />
             </div>
             <div className="grid gap-2">
@@ -193,6 +211,16 @@ export function WebScraper({ onScrapedLeads }: WebScraperProps) {
               </div>
               <div className="flex items-center gap-2">
                 <Checkbox
+                  id="email-filter"
+                  checked={mustHaveEmail}
+                  onCheckedChange={(checked) => setMustHaveEmail(checked as boolean)}
+                />
+                <label htmlFor="email-filter" className="text-sm text-slate-700 cursor-pointer">
+                  Must have email
+                </label>
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
                   id="website-filter"
                   checked={mustHaveWebsite}
                   onCheckedChange={(checked) => setMustHaveWebsite(checked as boolean)}
@@ -214,50 +242,51 @@ export function WebScraper({ onScrapedLeads }: WebScraperProps) {
           </Button>
         </Card>
 
-        {scrapedData.length === 0 && !isLoading && (
+        {scrapedLeads.length === 0 && !isLoading && (
           <div className="mt-8">
             <Card className="p-12">
               <div className="flex flex-col items-center justify-center text-center">
                 <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mb-4">
                   <Search className="w-8 h-8 text-slate-400" />
                 </div>
-                <h3 className="text-slate-900 mb-2">No leads found yet</h3>
+                <h3 className="text-slate-900 mb-2">Ready to Search</h3>
                 <p className="text-slate-500 max-w-md">
-                  Enter a location above to start finding dental clinics that need administrative support.
+                  Enter a ZIP code, State, or City + State combination to start finding dental clinics in your target area.
                 </p>
               </div>
             </Card>
           </div>
         )}
 
-        {scrapedData.length > 0 && (
+        {scrapedLeads.length > 0 && (
           <div className="mt-8 space-y-4">
             {/* Summary Card */}
-            <Card className={dataSource === 'openstreetmap' ? 'bg-emerald-50 border-emerald-200' : 'bg-green-50 border-green-200'}>
+            <Card className="bg-gradient-to-r from-[#ff77a4]/10 to-[#ff5a8f]/10 border-[#ff77a4]/30">
               <div className="p-4">
                 <div className="flex items-start gap-3">
-                  <CheckCircle2 className={`h-5 w-5 flex-shrink-0 mt-0.5 ${dataSource === 'openstreetmap' ? 'text-emerald-600' : 'text-green-600'}`} />
+                  <CheckCircle2 className="h-5 w-5 flex-shrink-0 mt-0.5 text-[#ff77a4]" />
                   <div className="flex-1">
-                    <h4 className={dataSource === 'openstreetmap' ? 'text-emerald-900 mb-1' : 'text-green-900 mb-1'}>
-                      {dataSource === 'openstreetmap' 
-                        ? '🆓 FREE OpenStreetMap Data Retrieved' 
-                        : '✅ Live Google Maps Data Retrieved'}
+                    <h4 className="text-slate-900 mb-1">
+                      ✅ Lead Discovery Complete
                     </h4>
-                    <div className={`grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mt-2 ${dataSource === 'openstreetmap' ? 'text-emerald-700' : 'text-green-700'}`}>
+                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3 text-sm mt-2 text-slate-700">
                       <div>
-                        <strong>{scrapedData.length}</strong> businesses found
+                        <strong>{scrapedLeads.length}</strong> businesses found
                       </div>
                       <div>
-                        <strong>{scrapedData.filter(l => l.phone).length}</strong> with phones
+                        <strong>{scrapedLeads.filter(l => l.email && !l.emailGenerated).length}</strong> with emails
                       </div>
                       <div>
-                        <strong>{scrapedData.filter(l => l.website).length}</strong> with websites
+                        <strong>{scrapedLeads.filter(l => l.phone).length}</strong> with phones
                       </div>
                       <div>
-                        {dataSource === 'google' && scrapedData.some(l => l.rating) ? (
-                          <><strong>{(scrapedData.reduce((sum, l) => sum + (l.rating || 0), 0) / scrapedData.length).toFixed(1)}</strong> avg rating</>
+                        <strong>{scrapedLeads.filter(l => l.website).length}</strong> with websites
+                      </div>
+                      <div>
+                        {scrapedLeads.some(l => l.rating) ? (
+                          <><strong>{(scrapedLeads.reduce((sum, l) => sum + (parseFloat(l.rating) || 0), 0) / scrapedLeads.length).toFixed(1)}</strong> avg rating</>
                         ) : (
-                          <span className="text-xs">No ratings (OSM)</span>
+                          <span className="text-xs text-slate-500">Ratings available</span>
                         )}
                       </div>
                     </div>
@@ -269,24 +298,18 @@ export function WebScraper({ onScrapedLeads }: WebScraperProps) {
             <div className="flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-3 mb-1">
-                  <h3 className="text-slate-900">Search Results</h3>
-                  {dataSource === 'openstreetmap' ? (
-                    <Badge className="bg-emerald-100 text-emerald-700 border-emerald-300">
-                      🆓 FREE OpenStreetMap
-                    </Badge>
-                  ) : (
-                    <Badge className="bg-green-100 text-green-700 border-green-300">
-                      ✓ Google Maps Premium
-                    </Badge>
-                  )}
+                  <h3 className="text-slate-900">Discovered Leads</h3>
+                  <Badge className="bg-[#ff77a4] text-white">
+                    ✓ Verified Data
+                  </Badge>
                 </div>
                 <p className="text-sm text-slate-600">
-                  Found {scrapedData.length} dental clinics
+                  {scrapedLeads.length} qualified dental clinic{scrapedLeads.length !== 1 ? 's' : ''}
                 </p>
               </div>
               <Button onClick={handleImportLeads} variant="outline" className="gap-2">
                 <Download className="w-4 h-4" />
-                Import {scrapedData.length} Leads
+                Import {scrapedLeads.length} Leads
               </Button>
             </div>
             <Card>
@@ -304,11 +327,26 @@ export function WebScraper({ onScrapedLeads }: WebScraperProps) {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {scrapedData.map((item, index) => (
+                    {scrapedLeads.map((item, index) => (
                       <TableRow key={index}>
                         <TableCell>{item.name}</TableCell>
-                        <TableCell className="text-sm">{item.email}</TableCell>
-                        <TableCell className="text-sm">{item.phone}</TableCell>
+                        <TableCell className="text-sm">
+                          {item.email ? (
+                            <div className="flex items-center gap-2">
+                              <span>{item.email}</span>
+                              {item.emailGenerated && (
+                                <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-300">
+                                  Est.
+                                </Badge>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-400 text-xs">No email</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {item.phone || <span className="text-slate-400 text-xs">No phone</span>}
+                        </TableCell>
                         <TableCell>
                           {item.website && (
                             <a 
@@ -343,40 +381,6 @@ export function WebScraper({ onScrapedLeads }: WebScraperProps) {
                     ))}
                   </TableBody>
                 </Table>
-              </div>
-            </Card>
-          </div>
-        )}
-
-        {scrapedData.length === 0 && !isLoading && (
-          <div className="mt-8">
-            <Card className="bg-[#ffe9f2] border-[#ff77a4]/30">
-              <div className="p-6">
-                <h4 className="text-[#ff77a4] mb-2">🌍 Ready to Search Dental Clinics</h4>
-                <p className="text-sm text-slate-700 mb-3">
-                  Enter a location above to search for dental clinics. Using <strong>FREE OpenStreetMap</strong> data - no API key required!
-                </p>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-slate-700">
-                  <div className="flex items-start gap-2">
-                    <span>🆓</span>
-                    <span>100% FREE searches</span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span>🌍</span>
-                    <span>Global coverage</span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span>✓</span>
-                    <span>Real business names</span>
-                  </div>
-                  <div className="flex items-start gap-2">
-                    <span>✓</span>
-                    <span>Accurate addresses</span>
-                  </div>
-                </div>
-                <div className="mt-3 p-3 bg-[#ffd4e6] rounded text-sm text-slate-900">
-                  <p><strong>💡 Tip:</strong> Start without filters to see all results, then enable "Must have phone" or "Must have website" if needed. OSM data quality varies by region.</p>
-                </div>
               </div>
             </Card>
           </div>

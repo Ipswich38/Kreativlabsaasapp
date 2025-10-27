@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Users, Mail, TrendingUp, Clock, CheckCircle2, AlertCircle } from 'lucide-react';
-import { Badge } from './ui/badge';
+import { Users, Mail, TrendingUp, Clock } from 'lucide-react';
+import logo from 'figma:asset/4d778675bb728bb5595e9394dadabf32025b40c1.png';
 
 interface DashboardProps {
   leads: any[];
@@ -12,60 +12,13 @@ export function Dashboard({ leads }: DashboardProps) {
 
   return (
     <div className="p-8">
-      <div className="mb-8">
-        <h1 className="text-slate-900 mb-2">Dashboard</h1>
-        <p className="text-slate-600">Overview of your CRM activities</p>
+      <div className="mb-8 flex items-center justify-between">
+        <div>
+          <h1 className="text-slate-900 mb-2">Dashboard</h1>
+          <p className="text-slate-600">Overview of your CRM activities</p>
+        </div>
+        <img src={logo} alt="Happy Teeth Logo" className="w-16 h-16 rounded-lg" />
       </div>
-
-      {/* System Status Card */}
-      <Card className="mb-6 border-2 border-emerald-100 bg-emerald-50/50">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <span>🚀</span> System Status
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="flex items-center gap-3 bg-white p-3 rounded-lg border border-emerald-200">
-              <CheckCircle2 className="h-5 w-5 text-emerald-500 flex-shrink-0" />
-              <div className="min-w-0">
-                <p className="text-sm text-slate-900">Database</p>
-                <Badge className="bg-emerald-100 text-emerald-700 border-emerald-300 text-xs">
-                  ✓ Operational
-                </Badge>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-3 bg-white p-3 rounded-lg border border-emerald-200">
-              <CheckCircle2 className="h-5 w-5 text-emerald-500 flex-shrink-0" />
-              <div className="min-w-0">
-                <p className="text-sm text-slate-900">Web Scraper</p>
-                <Badge className="bg-emerald-100 text-emerald-700 border-emerald-300 text-xs">
-                  🆓 FREE OSM
-                </Badge>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-3 bg-white p-3 rounded-lg border border-amber-200">
-              <AlertCircle className="h-5 w-5 text-amber-500 flex-shrink-0" />
-              <div className="min-w-0">
-                <p className="text-sm text-slate-900">Email SMTP</p>
-                <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 text-xs">
-                  Setup Required
-                </Badge>
-              </div>
-            </div>
-          </div>
-          <div className="mt-3 space-y-2">
-            <p className="text-xs text-emerald-700 bg-emerald-100 p-2 rounded">
-              🆓 <strong>FREE OpenStreetMap</strong> web scraping - no API keys needed! Search anywhere, anytime.
-            </p>
-            <p className="text-xs text-amber-700 bg-amber-100 p-2 rounded">
-              📧 Email sending requires Gmail SMTP setup. See <strong>Settings</strong> for configuration.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4 mb-8">
         <Card>

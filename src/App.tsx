@@ -1,22 +1,51 @@
 import { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
-import { LeadsManager } from './components/LeadsManager';
 import { EmailBlast } from './components/EmailBlast';
+import { ContactsManager } from './components/ContactsManager';
 import { WebScraper } from './components/WebScraper';
 import { Dashboard } from './components/Dashboard';
-import { Settings } from './components/Settings';
+import { Login } from './components/Login';
+import { AdminDashboard } from './components/AdminDashboard';
 import { leadsApi } from './utils/api';
 import { toast, Toaster } from 'sonner@2.0.3';
 
+type UserType = 'user' | 'admin' | null;
+
 export default function App() {
+  const [userType, setUserType] = useState<UserType>(null);
   const [activeView, setActiveView] = useState('dashboard');
   const [leads, setLeads] = useState<any[]>([]);
+  const [scrapedLeads, setScrapedLeads] = useState<any[]>([]); // Persistent scraped data
   const [isLoading, setIsLoading] = useState(true);
 
-  // Fetch leads from backend on mount
+  // Check for saved session on mount
   useEffect(() => {
-    fetchLeads();
+    const savedUserType = localStorage.getItem('htcrm_user_type');
+    if (savedUserType === 'user' || savedUserType === 'admin') {
+      setUserType(savedUserType as UserType);
+    } else {
+      setIsLoading(false);
+    }
   }, []);
+
+  // Load leads when user is authenticated
+  useEffect(() => {
+    if (userType) {
+      fetchLeads();
+    }
+  }, [userType]);
+
+  const handleLogin = (type: 'user' | 'admin') => {
+    setUserType(type);
+    localStorage.setItem('htcrm_user_type', type);
+  };
+
+  const handleLogout = () => {
+    setUserType(null);
+    localStorage.removeItem('htcrm_user_type');
+    setActiveView('dashboard');
+    toast.success('Logged out successfully');
+  };
 
   const fetchLeads = async () => {
     try {
@@ -65,81 +94,32 @@ export default function App() {
     }
   };
 
-  const handleScrapedLeads = async (scrapedLeads: any[]) => {
+  const handleScrapedLeads = async (scrapedData: any[]) => {
+    // Store scraped data persistently (doesn't save to DB yet)
+    setScrapedLeads(scrapedData);
+  };
+
+  const handleImportScrapedLeads = async (leadsToImport: any[]) => {
     try {
       const newLeads = [];
-      for (const scrapedLead of scrapedLeads) {
+      for (const scrapedLead of leadsToImport) {
         const lead = {
           ...scrapedLead,
           source: 'scraper',
           status: 'active',
+          contactStatus: 'new',
         };
         const created = await leadsApi.create(lead);
         newLeads.push(created);
       }
       setLeads([...leads, ...newLeads]);
       toast.success(`Imported ${newLeads.length} leads successfully`);
+      
+      // Clear scraped data after successful import
+      setScrapedLeads([]);
     } catch (error) {
       console.error('Error importing leads:', error);
       toast.error('Failed to import leads');
-    }
-  };
-
-  const handleAddTestContacts = async () => {
-    const testContacts = [
-      {
-        name: 'Kreativ Loops',
-        email: 'kreativloops@gmail.com',
-        company: 'KreativLab',
-        phone: '+1 555-0100',
-        address: '123 Test St, San Francisco, CA 94102',
-        website: 'https://kreativlab.com',
-        status: 'active',
-        source: 'test'
-      },
-      {
-        name: 'IO Kreativ',
-        email: 'io.kreativloops@gmail.com',
-        company: 'IO Solutions',
-        phone: '+1 555-0101',
-        address: '456 Demo Ave, San Francisco, CA 94103',
-        website: 'https://iosolutions.com',
-        status: 'active',
-        source: 'test'
-      },
-      {
-        name: 'Cherwin Fernandez',
-        email: 'fernandez.cherwin@gmail.com',
-        company: 'Fernandez Consulting',
-        phone: '+1 555-0102',
-        address: '789 Sample Blvd, San Francisco, CA 94104',
-        website: 'https://fernandezconsulting.com',
-        status: 'active',
-        source: 'test'
-      }
-    ];
-
-    try {
-      const newLeads = [];
-      for (const contact of testContacts) {
-        // Check if email already exists
-        const exists = leads.find(lead => lead.email === contact.email);
-        if (!exists) {
-          const created = await leadsApi.create(contact);
-          newLeads.push(created);
-        }
-      }
-      
-      if (newLeads.length > 0) {
-        setLeads([...leads, ...newLeads]);
-        toast.success(`Added ${newLeads.length} test contact(s)`);
-      } else {
-        toast.info('Test contacts already exist');
-      }
-    } catch (error) {
-      console.error('Error adding test contacts:', error);
-      toast.error('Failed to add test contacts');
-      throw error;
     }
   };
 
@@ -147,10 +127,7 @@ export default function App() {
     if (isLoading) {
       return (
         <div className="flex items-center justify-center min-h-screen">
-          <div className="text-center">
-            <div className="w-16 h-16 border-4 border-[#ff77a4] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-            <p className="text-slate-600">Loading your CRM data...</p>
-          </div>
+          <div className="w-16 h-16 border-4 border-[#ff77a4] border-t-transparent rounded-full animate-spin"></div>
         </div>
       );
     }
@@ -158,31 +135,56 @@ export default function App() {
     switch (activeView) {
       case 'dashboard':
         return <Dashboard leads={leads} />;
-      case 'leads':
+      case 'contacts':
         return (
-          <LeadsManager
-            leads={leads}
-            onAddLead={handleAddLead}
-            onUpdateLead={handleUpdateLead}
-            onDeleteLead={handleDeleteLead}
+          <ContactsManager
+            contacts={leads}
+            onAddContact={handleAddLead}
+            onUpdateContact={handleUpdateLead}
+            onDeleteContact={handleDeleteLead}
           />
         );
-      case 'email-contacts':
-        return <EmailBlast leads={leads} onAddTestContacts={handleAddTestContacts} onNavigateToSettings={() => setActiveView('settings')} />;
+      case 'email-blast':
+        return <EmailBlast leads={leads} isAdmin={false} />;
       case 'lead-generation':
-        return <WebScraper onScrapedLeads={handleScrapedLeads} />;
-      case 'settings':
-        return <Settings />;
+        return (
+          <WebScraper 
+            scrapedLeads={scrapedLeads}
+            onScrapedLeads={handleScrapedLeads}
+            onImportLeads={handleImportScrapedLeads}
+          />
+        );
       default:
         return <Dashboard leads={leads} />;
     }
   };
 
+  // Show login page if not authenticated
+  if (!userType) {
+    return (
+      <>
+        <Toaster position="top-right" richColors />
+        <Login onLogin={handleLogin} />
+      </>
+    );
+  }
+
+  // Show admin dashboard for admin users
+  if (userType === 'admin') {
+    return (
+      <>
+        <Toaster position="top-right" richColors />
+        <AdminDashboard leads={leads} onLogout={handleLogout} />
+      </>
+    );
+  }
+
+  // Show regular CRM for normal users
   return (
     <>
       <Toaster position="top-right" richColors />
       <div className="flex min-h-screen bg-slate-50">
-        <Sidebar activeView={activeView} onViewChange={setActiveView} />
+        <Sidebar activeView={activeView} onViewChange={setActiveView} onLogout={handleLogout} />
         <main className="flex-1">
           {renderContent()}
         </main>

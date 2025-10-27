@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef } from 'react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
@@ -8,9 +8,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Checkbox } from './ui/checkbox';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
 import { Badge } from './ui/badge';
-import { Mail, Send, Paperclip, X, CheckSquare, AlertTriangle, Settings } from 'lucide-react';
+import { Mail, Send, Paperclip, X, CheckSquare, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import { projectId, publicAnonKey } from '../utils/supabase/info';
+import { Alert, AlertDescription } from './ui/alert';
+import logo from 'figma:asset/4d778675bb728bb5595e9394dadabf32025b40c1.png';
 
 interface Lead {
   id: number;
@@ -25,8 +26,7 @@ interface Lead {
 
 interface EmailBlastProps {
   leads: Lead[];
-  onAddTestContacts?: () => Promise<void>;
-  onNavigateToSettings?: () => void;
+  isAdmin?: boolean;
 }
 
 const DEFAULT_EMAIL_TEMPLATE = `Hello!
@@ -42,55 +42,15 @@ Looking forward to connecting with you!
 Warm regards,
 Happy Teeth Support Services Team`;
 
-export function EmailBlast({ leads, onAddTestContacts, onNavigateToSettings }: EmailBlastProps) {
+export function EmailBlast({ leads, isAdmin = false }: EmailBlastProps) {
   const [selectedLeads, setSelectedLeads] = useState<number[]>([]);
   const [isEmailDialogOpen, setIsEmailDialogOpen] = useState(false);
   const [emailSubject, setEmailSubject] = useState('Partnership Opportunity with Happy Teeth Support Services');
   const [emailBody, setEmailBody] = useState(DEFAULT_EMAIL_TEMPLATE);
   const [attachments, setAttachments] = useState<File[]>([]);
-  const [isAddingTestContacts, setIsAddingTestContacts] = useState(false);
-  const [isGmailConfigured, setIsGmailConfigured] = useState<boolean | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeLeads = leads.filter(lead => lead.status === 'active');
-
-  // Check if Gmail is configured
-  useEffect(() => {
-    checkGmailConfig();
-  }, []);
-
-  const checkGmailConfig = async () => {
-    try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-aed69b82/gmail-config`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
-        }
-      );
-      const data = await response.json();
-      setIsGmailConfigured(data.success && data.config && data.config.hasPassword);
-    } catch (error) {
-      console.error('Error checking Gmail config:', error);
-      setIsGmailConfigured(false);
-    }
-  };
-  
-  const handleAddTestContacts = async () => {
-    if (onAddTestContacts) {
-      setIsAddingTestContacts(true);
-      try {
-        await onAddTestContacts();
-        toast.success('Test contacts added successfully!');
-      } catch (error) {
-        console.error('Error adding test contacts:', error);
-        toast.error('Failed to add test contacts');
-      } finally {
-        setIsAddingTestContacts(false);
-      }
-    }
-  };
 
   const handleSelectLead = (leadId: number) => {
     if (selectedLeads.includes(leadId)) {
@@ -120,11 +80,6 @@ export function EmailBlast({ leads, onAddTestContacts, onNavigateToSettings }: E
   };
 
   const handleSendEmail = async () => {
-    if (!isGmailConfigured) {
-      toast.error('Gmail is not configured. Please go to Settings first.');
-      return;
-    }
-
     if (selectedLeads.length === 0) {
       toast.error('Please select at least one recipient');
       return;
@@ -143,12 +98,24 @@ export function EmailBlast({ leads, onAddTestContacts, onNavigateToSettings }: E
     try {
       const { emailApi } = await import('../utils/api');
       
-      // Convert File objects to metadata for the backend
-      const attachmentData = attachments.map(file => ({
-        name: file.name,
-        size: file.size,
-        type: file.type
-      }));
+      // Convert File objects to base64 for the backend
+      const attachmentData = await Promise.all(
+        attachments.map(async (file) => {
+          return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              resolve({
+                filename: file.name,
+                content: reader.result, // This will be base64 data URL
+                contentType: file.type,
+                size: file.size
+              });
+            };
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+        })
+      );
       
       const response = await emailApi.sendBlast(selectedRecipients, emailSubject, emailBody, attachmentData);
       
@@ -156,15 +123,52 @@ export function EmailBlast({ leads, onAddTestContacts, onNavigateToSettings }: E
       toast.dismiss(sendingToast);
       
       // Show success with details
-      if (response.mode === 'production') {
-        const summary = response.summary;
-        if (summary.failed > 0) {
-          toast.warning(`Sent to ${summary.sent} recipient(s), ${summary.failed} failed`);
+      if (response.success) {
+        const successCount = response.successCount || 0;
+        const failureCount = response.failureCount || 0;
+        
+        if (failureCount > 0) {
+          // Check if it's an auth error
+          const authError = response.results?.some(r => 
+            !r.success && r.error?.includes('Gmail Auth Failed')
+          );
+          
+          if (authError) {
+            if (isAdmin) {
+              toast.error(
+                '❌ Gmail Authentication Failed\n\n' +
+                'Please enable 2-Step Verification and generate a new App Password at:\n' +
+                'https://myaccount.google.com/apppasswords',
+                { duration: 10000 }
+              );
+            } else {
+              toast.error('❌ Email sending failed. Please contact support.');
+            }
+          } else {
+            toast.warning(`Sent to ${successCount} of ${selectedLeads.length} recipient(s). ${failureCount} failed.`);
+          }
         } else {
-          toast.success(`✅ Email sent successfully to ${summary.sent} recipient(s)`);
+          toast.success(`✅ Successfully sent ${successCount} email(s)`);
         }
       } else {
-        toast.info(`📧 Email logged in demo mode for ${selectedLeads.length} recipient(s)`);
+        // Check if error message contains auth failure info
+        const errorMsg = response.error || 'Failed to send emails';
+        if (errorMsg.includes('Authentication Failed') || errorMsg.includes('2-Step Verification')) {
+          if (isAdmin) {
+            toast.error(
+              '❌ Gmail Setup Required\n\n' +
+              '1. Go to https://myaccount.google.com/security\n' +
+              '2. Enable 2-Step Verification\n' +
+              '3. Generate App Password at https://myaccount.google.com/apppasswords\n' +
+              '4. Update credentials in server code',
+              { duration: 15000 }
+            );
+          } else {
+            toast.error('❌ Email sending failed. Please contact support.');
+          }
+        } else {
+          toast.error(errorMsg);
+        }
       }
       
       setIsEmailDialogOpen(false);
@@ -180,11 +184,6 @@ export function EmailBlast({ leads, onAddTestContacts, onNavigateToSettings }: E
   };
 
   const openEmailComposer = () => {
-    if (!isGmailConfigured) {
-      toast.error('Please configure Gmail in Settings first');
-      onNavigateToSettings?.();
-      return;
-    }
     if (selectedLeads.length === 0) {
       toast.error('Please select at least one recipient');
       return;
@@ -194,87 +193,79 @@ export function EmailBlast({ leads, onAddTestContacts, onNavigateToSettings }: E
 
   return (
     <div className="p-8">
-      <div className="mb-6">
-        <h1 className="text-slate-900 mb-2">Email Contacts</h1>
-        <p className="text-slate-600">Send personalized email campaigns to your leads</p>
+      <div className="mb-6 flex items-center justify-between">
+        <div>
+          <h1 className="text-slate-900 mb-2">Email Contacts</h1>
+          <p className="text-slate-600">Send personalized email campaigns to your leads</p>
+        </div>
+        <img src={logo} alt="Happy Teeth Logo" className="w-16 h-16 rounded-lg" />
       </div>
 
-      {/* Gmail Configuration Status Card */}
-      {isGmailConfigured === false && (
-        <Card className="mb-6 border-2 border-red-200 bg-red-50">
-          <div className="p-4">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-                <AlertTriangle className="h-5 w-5 text-red-600" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-red-900 mb-1">⚠️ Gmail Not Configured</h3>
-                <p className="text-sm text-red-700 mb-3">
-                  You need to configure Gmail SMTP before sending emails. Click below to set up your credentials.
-                </p>
-                <div className="bg-red-100 rounded p-3 mb-3 text-sm text-red-800">
-                  <strong>Quick Setup:</strong><br />
-                  Gmail: sshappyteeth@gmail.com<br />
-                  App Password: wvnbgpmnkupothrh
+      {/* Gmail Setup Alert - Only visible to admin */}
+      {isAdmin && (
+        <Alert className="mb-6 border-2 border-amber-500 bg-amber-50">
+          <AlertCircle className="h-5 w-5 text-amber-600" />
+          <AlertDescription>
+            <div className="space-y-2">
+              <p className="text-amber-900">
+                <strong>⚠️ Gmail SMTP Setup Instructions (Admin Only)</strong>
+              </p>
+              <p className="text-sm text-amber-800">
+                If emails fail to send with "Authentication Failed" error, ensure <strong>sshappyteeth@gmail.com</strong> has:
+              </p>
+              <ol className="text-sm text-amber-800 list-decimal list-inside space-y-1 ml-2">
+                <li>2-Step Verification enabled at <a href="https://myaccount.google.com/security" target="_blank" rel="noopener noreferrer" className="underline text-[#ff77a4] hover:text-[#ff5a8f]">Google Security Settings</a></li>
+                <li>Valid App Password generated at <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer" className="underline text-[#ff77a4] hover:text-[#ff5a8f]">App Passwords</a></li>
+                <li>App Password updated in <code className="bg-amber-100 px-1 rounded text-xs">/supabase/functions/server/index.tsx</code></li>
+              </ol>
+              <details className="mt-2 pt-2 border-t border-amber-200">
+                <summary className="text-xs text-amber-700 cursor-pointer hover:text-amber-900">Show detailed setup instructions</summary>
+                <div className="mt-2 p-2 bg-amber-100 rounded text-xs text-amber-900 space-y-1">
+                  <p><strong>Step 1:</strong> Go to Google Account → Security → Enable 2-Step Verification</p>
+                  <p><strong>Step 2:</strong> Search for "App passwords" in Google Account settings</p>
+                  <p><strong>Step 3:</strong> Generate new app password (select "Mail" and your device)</p>
+                  <p><strong>Step 4:</strong> Copy the 16-character password (remove spaces)</p>
+                  <p><strong>Step 5:</strong> Update GMAIL_CONFIG.appPassword in server code</p>
+                  <p className="pt-1 border-t border-amber-300 mt-2"><strong>Note:</strong> Regular Gmail password will NOT work. Must use App Password.</p>
                 </div>
-                <Button
-                  onClick={() => onNavigateToSettings?.()}
-                  className="bg-red-600 hover:bg-red-700"
-                  size="sm"
-                >
-                  <Settings className="w-4 h-4 mr-2" />
-                  Configure Gmail Now
-                </Button>
-              </div>
+              </details>
             </div>
-          </div>
-        </Card>
-      )}
-      
-      {isGmailConfigured === true && (
-        <Card className="mb-6 border-2 border-green-100 bg-green-50/50">
-          <div className="p-4">
-            <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
-                <Mail className="h-5 w-5 text-green-600" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-green-900 mb-1">✅ Production Gmail SMTP Configured</h3>
-                <p className="text-sm text-green-700 mb-2">
-                  Emails will be sent from <strong>sshappyteeth@gmail.com</strong> with professional HTML templates.
-                </p>
-                <div className="flex gap-4 text-xs text-green-700">
-                  <span>📧 500 emails/day limit</span>
-                  <span>✉️ Branded templates</span>
-                  <span>👤 Personalized</span>
-                  <span>✓ Production ready</span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </Card>
+          </AlertDescription>
+        </Alert>
       )}
 
-      {/* Test Contacts Helper */}
+      {/* No Contacts Helper */}
       {activeLeads.length === 0 && (
-        <Card className="mb-6 border-2 border-[#ff77a4]/30 bg-[#ffe9f2]">
+        <Card className="mb-6 border-2 border-slate-200 bg-slate-50">
           <div className="p-4">
             <div className="flex items-start gap-3">
               <div className="flex-1">
-                <h4 className="text-[#ff77a4] mb-2">🧪 Test Email Blast Feature</h4>
+                <h4 className="text-slate-900 mb-2">📋 No Active Contacts Found</h4>
                 <p className="text-sm text-slate-700 mb-3">
-                  No contacts found. Add test contacts to test the email blast functionality.
+                  You don't have any active contacts yet. Add leads manually in the Leads Manager or use the Lead Generation feature to scrape dental clinics.
                 </p>
-                <Button 
-                  onClick={handleAddTestContacts}
-                  disabled={isAddingTestContacts}
-                  className="bg-[#ff77a4] hover:bg-[#ff5a8f]"
-                >
-                  {isAddingTestContacts ? 'Adding...' : '➕ Add Test Contacts (3)'}
-                </Button>
-                <p className="text-xs text-slate-600 mt-2">
-                  Will add: kreativloops@gmail.com, io.kreativloops@gmail.com, fernandez.cherwin@gmail.com
-                </p>
+                <div className="flex gap-2">
+                  <Button 
+                    onClick={() => {
+                      const leadsBtn = document.querySelector('button[data-view="leads"]') as HTMLButtonElement;
+                      if (leadsBtn) leadsBtn.click();
+                    }}
+                    variant="outline"
+                    size="sm"
+                  >
+                    Go to Leads Manager
+                  </Button>
+                  <Button 
+                    onClick={() => {
+                      const genBtn = document.querySelector('button[data-view="lead-generation"]') as HTMLButtonElement;
+                      if (genBtn) genBtn.click();
+                    }}
+                    className="bg-[#ff77a4] hover:bg-[#ff5a8f]"
+                    size="sm"
+                  >
+                    Generate Leads
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
@@ -353,35 +344,84 @@ export function EmailBlast({ leads, onAddTestContacts, onNavigateToSettings }: E
         </div>
 
         <Dialog open={isEmailDialogOpen} onOpenChange={setIsEmailDialogOpen}>
-          <DialogContent className="sm:max-w-[600px]">
-            <DialogHeader>
-              <DialogTitle>Compose Email</DialogTitle>
+          <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
+            <DialogHeader className="pb-4">
+              <DialogTitle className="flex items-center gap-2">
+                <Mail className="w-5 h-5 text-[#ff77a4]" />
+                Compose Email Campaign
+              </DialogTitle>
               <DialogDescription>
-                Sending to {selectedLeads.length} recipient(s)
+                Sending to {selectedLeads.length} recipient(s) • What you see is what they'll receive
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid gap-2">
-                <Label htmlFor="subject">Subject</Label>
+
+            {/* Email Preview Container - WYSIWYG */}
+            <div className="bg-slate-50 p-4 rounded-lg border-2 border-slate-200">
+              {/* Subject Line Editor */}
+              <div className="mb-4 bg-white p-3 rounded-lg border border-slate-300">
+                <Label htmlFor="subject" className="text-xs text-slate-500 mb-1 block">
+                  Subject Line
+                </Label>
                 <Input
                   id="subject"
                   value={emailSubject}
                   onChange={(e) => setEmailSubject(e.target.value)}
                   placeholder="Enter email subject"
+                  className="border-0 shadow-none text-lg p-0 focus-visible:ring-0 focus-visible:ring-offset-0"
                 />
               </div>
-              <div className="grid gap-2">
-                <Label htmlFor="message">Message</Label>
-                <Textarea
-                  id="message"
-                  value={emailBody}
-                  onChange={(e) => setEmailBody(e.target.value)}
-                  placeholder="Enter your email message..."
-                  rows={8}
-                />
+
+              {/* WYSIWYG Email Preview - Matches recipient view exactly */}
+              <div className="bg-white rounded-lg overflow-hidden shadow-lg border-2 border-slate-300">
+                {/* Email Header with Logo */}
+                <div className="bg-gradient-to-r from-[#ff77a4] to-[#ff5a8f] p-8 text-center">
+                  <div className="bg-white rounded-xl p-5 inline-block shadow-lg">
+                    <img 
+                      src={logo} 
+                      alt="Happy Teeth Support Services" 
+                      className="w-48 h-auto"
+                    />
+                  </div>
+                </div>
+
+                {/* Email Body - Editable */}
+                <div className="p-8">
+                  <Label htmlFor="message" className="text-xs text-slate-500 mb-2 block">
+                    Email Message
+                  </Label>
+                  <Textarea
+                    id="message"
+                    value={emailBody}
+                    onChange={(e) => setEmailBody(e.target.value)}
+                    placeholder="Type your message here... Recipients will see exactly what you type."
+                    rows={12}
+                    className="border-2 border-dashed border-slate-300 shadow-none font-sans text-[15px] leading-[1.7] focus-visible:border-[#ff77a4] transition-colors resize-none"
+                  />
+
+                  {/* Email Signature - Auto-generated */}
+                  <div className="mt-6 pt-6 border-t-2 border-pink-100">
+                    <p className="font-semibold text-[#ff77a4] mb-1">
+                      Happy Teeth Support Services
+                    </p>
+                    <p className="text-sm text-slate-500">
+                      sshappyteeth@gmail.com
+                    </p>
+                  </div>
+                </div>
+
+                {/* Email Footer */}
+                <div className="bg-pink-50 p-4 text-center">
+                  <p className="text-xs text-slate-500">
+                    This email was sent from KreativLab CRM
+                  </p>
+                </div>
               </div>
-              <div className="grid gap-2">
-                <Label>Attachments</Label>
+
+              {/* Attachments Section */}
+              <div className="mt-4">
+                <Label className="text-sm text-slate-700 mb-2 block">
+                  File Attachments
+                </Label>
                 <div className="space-y-2">
                   <input
                     type="file"
@@ -394,21 +434,21 @@ export function EmailBlast({ leads, onAddTestContacts, onNavigateToSettings }: E
                     type="button"
                     variant="outline"
                     onClick={() => fileInputRef.current?.click()}
-                    className="w-full gap-2"
+                    className="w-full gap-2 bg-white hover:bg-slate-50"
                   >
                     <Paperclip className="w-4 h-4" />
                     Attach Files
                   </Button>
                   {attachments.length > 0 && (
-                    <div className="space-y-2">
+                    <div className="space-y-2 mt-2">
                       {attachments.map((file, index) => (
                         <div
                           key={index}
-                          className="flex items-center justify-between p-2 bg-slate-50 rounded-md"
+                          className="flex items-center justify-between p-3 bg-white rounded-md border border-slate-200"
                         >
                           <div className="flex items-center gap-2">
-                            <Paperclip className="w-4 h-4 text-slate-400" />
-                            <span className="text-sm">{file.name}</span>
+                            <Paperclip className="w-4 h-4 text-[#ff77a4]" />
+                            <span className="text-sm font-medium">{file.name}</span>
                             <span className="text-xs text-slate-400">
                               ({(file.size / 1024).toFixed(1)} KB)
                             </span>
@@ -418,6 +458,7 @@ export function EmailBlast({ leads, onAddTestContacts, onNavigateToSettings }: E
                             variant="ghost"
                             size="icon"
                             onClick={() => handleRemoveAttachment(index)}
+                            className="hover:bg-red-50 hover:text-red-600"
                           >
                             <X className="w-4 h-4" />
                           </Button>
@@ -428,14 +469,29 @@ export function EmailBlast({ leads, onAddTestContacts, onNavigateToSettings }: E
                 </div>
               </div>
             </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsEmailDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button onClick={handleSendEmail} className="gap-2">
-                <Send className="w-4 h-4" />
-                Send Email
-              </Button>
+
+            <DialogFooter className="flex-col sm:flex-row gap-2 pt-4">
+              <div className="flex-1 text-left">
+                <p className="text-xs text-slate-500">
+                  ✨ Live preview - Recipients see exactly what's shown above
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button 
+                  variant="outline" 
+                  onClick={() => setIsEmailDialogOpen(false)}
+                  className="flex-1 sm:flex-initial"
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={handleSendEmail} 
+                  className="gap-2 bg-[#ff77a4] hover:bg-[#ff5a8f] flex-1 sm:flex-initial"
+                >
+                  <Send className="w-4 h-4" />
+                  Send to {selectedLeads.length} Contact{selectedLeads.length !== 1 ? 's' : ''}
+                </Button>
+              </div>
             </DialogFooter>
           </DialogContent>
         </Dialog>

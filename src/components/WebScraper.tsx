@@ -8,9 +8,8 @@ import { Badge } from './ui/badge';
 import { Checkbox } from './ui/checkbox';
 import { Search, Download, AlertCircle, CheckCircle2, Settings } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import logo from 'figma:asset/4d778675bb728bb5595e9394dadabf32025b40c1.png';
-import { searchDentalClinics } from '../lib/googleMaps';
-import { leadsApi } from '../lib/api';
+const logo = 'https://i.imgur.com/I768xBG.png';
+import { GoogleMapsApiHelper } from './GoogleMapsApiHelper';
 
 interface WebScraperProps {
   scrapedLeads: any[];
@@ -31,37 +30,32 @@ export function WebScraper({ scrapedLeads, onScrapedLeads, onImportLeads }: WebS
   // Use persistent scrapedLeads from props instead of local state
 
   const testApiConnection = async () => {
-    const apiKey = process.env.VITE_GOOGLE_MAPS_API_KEY;
-    if (!apiKey) {
-      toast.error('❌ Google Maps API Key Missing', {
-        description: 'Please set VITE_GOOGLE_MAPS_API_KEY in your environment variables',
-        duration: 8000
-      });
-      setShowApiHelper(true);
-      return;
-    }
-
     try {
       toast.info('Testing Google Maps API connection...');
-      // Simple test by trying to load the API
-      const { Loader } = await import('@googlemaps/js-api-loader');
-      const loader = new Loader({
-        apiKey,
-        version: 'weekly',
-        libraries: ['places']
+      const response = await fetch(`https://${await (await import('../utils/supabase/info')).projectId}.supabase.co/functions/v1/make-server-aed69b82/test-google-api`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await import('../utils/supabase/info')).publicAnonKey}`
+        }
       });
-
-      await loader.load();
-
-      toast.success('✅ Google Maps API is working!', {
-        description: 'API key is valid and Places API is accessible'
-      });
+      const data = await response.json();
+      
+      if (data.success) {
+        toast.success('✅ Google Maps API is working!', {
+          description: data.message
+        });
+      } else {
+        toast.error('❌ Google Maps API Error', {
+          description: data.error,
+          duration: 8000
+        });
+        setShowApiHelper(true);
+      }
     } catch (error: any) {
-      toast.error('❌ Google Maps API Error', {
-        description: error.message,
-        duration: 8000
+      toast.error('Connection test failed', {
+        description: error.message
       });
-      setShowApiHelper(true);
     }
   };
 
@@ -70,70 +64,52 @@ export function WebScraper({ scrapedLeads, onScrapedLeads, onImportLeads }: WebS
     const hasZipCode = zipCode.trim();
     const hasState = state.trim();
     const hasCity = city.trim();
-
+    
     if (!hasZipCode && !hasState && !hasCity) {
       toast.error('Please enter at least one location field (ZIP code, State, or City)');
       return;
     }
 
-    const apiKey = process.env.VITE_GOOGLE_MAPS_API_KEY;
-    if (!apiKey) {
-      toast.error('❌ Google Maps API Key Missing', {
-        description: 'Please set VITE_GOOGLE_MAPS_API_KEY in your environment variables',
-        duration: 8000
-      });
-      setShowApiHelper(true);
-      return;
-    }
-
     setIsLoading(true);
     onScrapedLeads([]);
-
+    
     try {
-      console.log('🔍 Searching dental clinics:', { zipCode, city, state, mustHavePhone, mustHaveWebsite, mustHaveEmail });
-
-      const results = await searchDentalClinics(apiKey, {
+      const { scraperApi } = await import('../utils/api');
+      
+      console.log('🔍 Sending scrape request:', { zipCode, city, state, mustHavePhone, mustHaveWebsite, mustHaveEmail });
+      
+      const response = await scraperApi.scrapeGoogleMaps({
         zipCode,
         city,
         state,
         mustHavePhone,
         mustHaveWebsite,
-        mustHaveEmail,
-        radius: 50000 // 50km radius
+        mustHaveEmail
       });
-
-      console.log('📥 Search results:', results);
-
-      // Transform results to match expected format
-      const transformedResults = results.map(clinic => ({
-        name: clinic.name,
-        email: clinic.email,
-        phone: clinic.phone,
-        website: clinic.website,
-        address: clinic.address,
-        rating: clinic.rating?.toString() || '0',
-        reviews: clinic.reviews || 0,
-        googleMapsUrl: clinic.google_maps_url,
-        emailGenerated: !!clinic.email && clinic.email.includes('@')
-      }));
-
-      onScrapedLeads(transformedResults);
-
-      if (transformedResults.length === 0) {
-        toast.info('No dental clinics found for this location');
+      
+      console.log('📥 Scrape response:', response);
+      
+      onScrapedLeads(response.results || []);
+      
+      if ((response.results || []).length === 0) {
+        if (response.message) {
+          toast.info(response.message);
+        } else {
+          toast.info('No dental clinics found for this location');
+        }
       } else {
-        const count = transformedResults.length;
+        const count = response.results.length;
         toast.success(`Found ${count} dental clinic${count !== 1 ? 's' : ''} in your target area`);
       }
     } catch (error: any) {
       console.error('Error scraping dental clinics:', error);
-
-      if (error.message?.includes('API key') || error.message?.includes('REQUEST_DENIED')) {
-        toast.error('Google Maps API Configuration Error', {
-          description: 'Please check your API key and ensure Places API is enabled.',
+      
+      // Special handling for API key restriction errors
+      if (error.message?.includes('referer restrictions') || error.message?.includes('REQUEST_DENIED')) {
+        toast.error('Google Maps API Key Configuration Error', {
+          description: 'The API key has referrer restrictions. Please create a server-side API key without restrictions. See FIX_GOOGLE_MAPS_API_KEY.md for instructions.',
           duration: 10000,
         });
-        setShowApiHelper(true);
       } else {
         toast.error(error.message || 'Failed to search for dental clinics');
       }

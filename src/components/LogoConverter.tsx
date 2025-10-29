@@ -3,7 +3,7 @@ import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Copy, Check, Mail, Send, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import logo from 'figma:asset/4d778675bb728bb5595e9394dadabf32025b40c1.png';
+const logo = 'https://i.imgur.com/I768xBG.png';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 export function LogoConverter() {

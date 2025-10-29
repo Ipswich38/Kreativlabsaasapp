@@ -1,26 +1,49 @@
 import { useState, useEffect } from 'react';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
-import { Check, Download, AlertCircle, Loader2 } from 'lucide-react';
+import { Check, Download, AlertCircle, Loader2, Image as ImageIcon } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import logo from 'figma:asset/4d778675bb728bb5595e9394dadabf32025b40c1.png';
+const logo = 'https://i.imgur.com/I768xBG.png';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
 
 export function AutoLogoFix() {
   const [isUploading, setIsUploading] = useState(false);
   const [uploadSuccess, setUploadSuccess] = useState(false);
-  const [base64Preview, setBase64Preview] = useState<string>('');
+  const [publicUrl, setPublicUrl] = useState('');
   const [isChecking, setIsChecking] = useState(true);
 
   useEffect(() => {
-    checkServerLogo();
+    checkLogoStatus();
   }, []);
 
-  const checkServerLogo = async () => {
+  const checkLogoStatus = async () => {
     try {
       setIsChecking(true);
+      
+      // First check if server is reachable
+      try {
+        const healthCheck = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-aed69b82/health`,
+          {
+            method: 'GET',
+            headers: {
+              Authorization: `Bearer ${publicAnonKey}`,
+            },
+          }
+        );
+        
+        if (!healthCheck.ok) {
+          console.warn('⚠️ Server health check failed');
+        }
+      } catch (healthError) {
+        console.error('❌ Server is not reachable:', healthError);
+        setIsChecking(false);
+        return; // Don't try to upload if server is down
+      }
+      
+      // Check if logo exists on server (Supabase Storage)
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-aed69b82/email-logo`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-aed69b82/logo-url`,
         {
           method: 'GET',
           headers: {
@@ -31,15 +54,25 @@ export function AutoLogoFix() {
 
       if (response.ok) {
         const data = await response.json();
-        if (data.logo && data.logo.length > 1000) {
+        if (data.exists && data.publicUrl) {
+          console.log('✅ Logo already exists in Supabase Storage');
+          console.log('🔗 Public URL:', data.publicUrl);
           setUploadSuccess(true);
-          setBase64Preview(data.logo);
+          setPublicUrl(data.publicUrl);
+          setIsChecking(false);
+          return;
         }
       }
-    } catch (error) {
-      console.error('Error checking server logo:', error);
-    } finally {
+      
+      // Logo doesn't exist - automatically convert and upload it!
+      console.log('🔄 No logo found - automatically uploading to Supabase Storage...');
       setIsChecking(false);
+      await convertAndUploadLogo();
+      
+    } catch (err) {
+      console.error('Error checking server logo:', err);
+      setIsChecking(false);
+      // Don't auto-upload on error to avoid cascade failures
     }
   };
 
@@ -47,65 +80,78 @@ export function AutoLogoFix() {
     setIsUploading(true);
     try {
       // Convert logo to base64
-      toast.loading('Converting logo to base64...', { id: 'logo-convert' });
+      console.log('🔄 Converting Happy Teeth logo to base64...');
       
       const response = await fetch(logo);
       const blob = await response.blob();
       
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
+        reader.onloadend = () => {
+          const result = reader.result;
+          if (typeof result === 'string') {
+            resolve(result);
+          } else {
+            reject(new Error('Failed to convert to base64'));
+          }
+        };
         reader.onerror = reject;
         reader.readAsDataURL(blob);
       });
 
       console.log('✅ Logo converted to base64, length:', base64.length);
-      setBase64Preview(base64);
       
-      // Upload to server
-      toast.loading('Uploading to email server...', { id: 'logo-convert' });
+      // Upload to Supabase Storage via server endpoint
+      console.log('📤 Uploading logo to Supabase Storage...');
       
       const uploadResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-aed69b82/email-logo`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-aed69b82/upload-logo`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${publicAnonKey}`,
           },
-          body: JSON.stringify({ logo: base64 }),
+          body: JSON.stringify({ base64Data: base64 }),
         }
       );
 
       if (!uploadResponse.ok) {
-        throw new Error('Failed to upload logo');
+        const errorData = await uploadResponse.json();
+        throw new Error(errorData.error || 'Failed to upload logo');
       }
 
-      toast.success('✅ Logo successfully uploaded! Your emails will now display the Happy Teeth logo perfectly!', { 
-        id: 'logo-convert',
+      const result = await uploadResponse.json();
+      console.log('✅ Logo successfully uploaded to Supabase Storage!');
+      console.log('🔗 Public URL:', result.publicUrl);
+      
+      setPublicUrl(result.publicUrl || '');
+      toast.success('🎨 Happy Teeth logo is now active in all emails!', { 
+        description: 'Your logo is publicly accessible for email clients',
         duration: 5000 
       });
       setUploadSuccess(true);
-    } catch (error) {
-      console.error('Error converting/uploading logo:', error);
-      toast.error('Failed to upload logo. Please try again.', { id: 'logo-convert' });
+    } catch (err) {
+      console.error('❌ Error converting/uploading logo:', err);
+      toast.error('Failed to upload logo to Supabase Storage', { 
+        description: 'Click "Fix Email Logo Automatically" to retry.',
+        duration: 6000 
+      });
     } finally {
       setIsUploading(false);
     }
   };
 
-  const downloadBase64 = () => {
-    if (!base64Preview) return;
+  const copyPublicUrl = () => {
+    if (!publicUrl) return;
     
-    const element = document.createElement('a');
-    const file = new Blob([base64Preview], { type: 'text/plain' });
-    element.href = URL.createObjectURL(file);
-    element.download = 'logo-base64.txt';
-    document.body.appendChild(element);
-    element.click();
-    document.body.removeChild(element);
-    
-    toast.success('Base64 code downloaded!');
+    navigator.clipboard.writeText(publicUrl);
+    toast.success('Public URL copied to clipboard!');
+  };
+
+  const testInBrowser = () => {
+    if (!publicUrl) return;
+    window.open(publicUrl, '_blank');
   };
 
   if (isChecking) {
@@ -113,7 +159,7 @@ export function AutoLogoFix() {
       <Card className="p-6 bg-slate-50 border-2 border-slate-200">
         <div className="flex items-center gap-3">
           <Loader2 className="w-5 h-5 animate-spin text-[#ff77a4]" />
-          <span className="text-slate-600">Checking email logo status...</span>
+          <span className="text-slate-600">Checking logo in Supabase Storage...</span>
         </div>
       </Card>
     );
@@ -127,11 +173,12 @@ export function AutoLogoFix() {
           <img src={logo} alt="Happy Teeth Logo" className="w-24 h-auto" />
         </div>
         <div>
-          <h3 className="font-semibold text-slate-900 mb-1">
-            Email Logo Configuration
+          <h3 className="font-semibold text-slate-900 mb-1 flex items-center gap-2">
+            <ImageIcon className="w-5 h-5 text-[#ff77a4]" />
+            <span>Email Logo Configuration</span>
           </h3>
           <p className="text-sm text-slate-600">
-            Automatically fix broken logo in emails
+            Upload logo to Supabase Storage for emails
           </p>
         </div>
       </div>
@@ -139,37 +186,68 @@ export function AutoLogoFix() {
       {/* Status and Action */}
       {uploadSuccess ? (
         <div className="space-y-3">
-          <div className="flex items-center gap-2 bg-green-100 text-green-800 px-4 py-3 rounded-lg border border-green-300">
-            <Check className="w-5 h-5" />
+          <div className="flex items-start gap-2 bg-green-100 text-green-800 px-4 py-3 rounded-lg border border-green-300">
+            <Check className="w-5 h-5 mt-0.5 flex-shrink-0" />
             <div>
-              <div className="font-semibold">Logo Active in All Emails! ✨</div>
+              <div className="font-semibold">Logo Active in Supabase Storage! ✨</div>
               <div className="text-xs text-green-700 mt-1">
-                Your Happy Teeth logo is displaying perfectly in all sent emails
+                Your Happy Teeth logo is publicly accessible for all email clients
               </div>
             </div>
           </div>
           
-          {base64Preview && (
-            <div className="flex gap-2">
-              <Button
-                onClick={downloadBase64}
-                variant="outline"
-                size="sm"
-                className="gap-2"
-              >
-                <Download className="w-4 h-4" />
-                Download Base64 (Backup)
-              </Button>
-              <Button
-                onClick={convertAndUploadLogo}
-                variant="outline"
-                size="sm"
-                className="gap-2"
-              >
-                Re-upload Logo
-              </Button>
+          {publicUrl && publicUrl.length > 0 && (
+            <div className="space-y-2">
+              <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="text-xs font-semibold text-blue-900 mb-1">Public URL:</div>
+                <div className="text-xs text-blue-700 font-mono break-all">{publicUrl}</div>
+              </div>
+              
+              <div className="flex gap-2">
+                <Button
+                  onClick={copyPublicUrl}
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 flex-1"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>Copy URL</span>
+                </Button>
+                <Button
+                  onClick={testInBrowser}
+                  variant="outline"
+                  size="sm"
+                  className="gap-2 flex-1"
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  <span>Test in Browser</span>
+                </Button>
+                <Button
+                  onClick={convertAndUploadLogo}
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                >
+                  <span>Re-upload</span>
+                </Button>
+              </div>
             </div>
           )}
+
+          <div className="p-3 bg-purple-50 border border-purple-200 rounded-lg">
+            <div className="flex items-start gap-2">
+              <Check className="w-4 h-4 text-purple-600 mt-0.5" />
+              <div className="text-xs text-purple-700">
+                <div className="font-semibold mb-1">Why this works for emails:</div>
+                <ul className="space-y-1 list-disc list-inside">
+                  <li>Email clients block base64 images for security</li>
+                  <li>Supabase Storage provides a real HTTPS URL</li>
+                  <li>Your logo is publicly accessible (required for emails)</li>
+                  <li>Gmail, Outlook, and other clients will display it perfectly!</li>
+                </ul>
+              </div>
+            </div>
+          </div>
         </div>
       ) : (
         <div className="space-y-3">
@@ -178,7 +256,7 @@ export function AutoLogoFix() {
             <div className="text-sm">
               <div className="font-semibold mb-1">Logo Not Configured</div>
               <div className="text-amber-700">
-                Your emails are being sent without the Happy Teeth logo. Click the button below to fix this automatically.
+                Your emails are being sent without the Happy Teeth logo. Click below to upload it to Supabase Storage (this creates a public URL that works in emails).
               </div>
             </div>
           </div>
@@ -192,29 +270,16 @@ export function AutoLogoFix() {
             {isUploading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Converting & Uploading Logo...
+                <span>Uploading to Supabase Storage...</span>
               </>
             ) : (
               <>
                 <Check className="w-4 h-4" />
-                Fix Email Logo Automatically
+                <span>Fix Email Logo Automatically</span>
               </>
             )}
           </Button>
         </div>
-      )}
-
-      {/* Technical Details */}
-      {base64Preview && (
-        <details className="mt-4 text-xs">
-          <summary className="cursor-pointer text-slate-600 hover:text-slate-900">
-            Technical Details
-          </summary>
-          <div className="mt-2 p-3 bg-slate-900 text-green-400 rounded font-mono text-[10px] overflow-hidden">
-            <div className="mb-1 text-slate-400">Base64 Length: {base64Preview.length} characters</div>
-            <div className="truncate">{base64Preview.substring(0, 100)}...</div>
-          </div>
-        </details>
       )}
     </Card>
   );

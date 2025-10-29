@@ -1,6 +1,6 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Users, Mail, TrendingUp, Clock } from 'lucide-react';
-import logo from 'figma:asset/4d778675bb728bb5595e9394dadabf32025b40c1.png';
+const logo = 'https://i.imgur.com/I768xBG.png';
 
 interface DashboardProps {
   leads: any[];

@@ -1,4 +1,4 @@
-import logo from 'figma:asset/4d778675bb728bb5595e9394dadabf32025b40c1.png';
+const logo = 'https://i.imgur.com/I768xBG.png';
 
 export async function getLogoAsBase64(): Promise<string> {
   try {

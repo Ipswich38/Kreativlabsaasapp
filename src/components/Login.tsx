@@ -5,10 +5,10 @@ import { Label } from './ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Lock, User } from 'lucide-react';
 import { toast } from 'sonner@2.0.3';
-import logo from 'figma:asset/4d778675bb728bb5595e9394dadabf32025b40c1.png';
+const logo = 'https://i.imgur.com/I768xBG.png';
 
 interface LoginProps {
-  onLogin: (userType: 'user' | 'admin') => void;
+  onLogin: (userType: 'user' | 'admin', username: string) => void;
 }
 
 export function Login({ onLogin }: LoginProps) {
@@ -24,12 +24,12 @@ export function Login({ onLogin }: LoginProps) {
     if (username === 'htsscrm' && passcode === '272829') {
       toast.success('Welcome to Happy Teeth CRM!');
       setTimeout(() => {
-        onLogin('user');
+        onLogin('user', username);
       }, 500);
     } else if (username === 'kreativlab' && passcode === '272829') {
       toast.success('Welcome, Admin!');
       setTimeout(() => {
-        onLogin('admin');
+        onLogin('admin', username);
       }, 500);
     } else {
       setIsLoading(false);

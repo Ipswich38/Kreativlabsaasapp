@@ -1,18 +1,22 @@
 import { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
-import { EmailBlast } from './components/EmailBlast';
 import { ContactsManager } from './components/ContactsManager';
 import { WebScraper } from './components/WebScraper';
 import { Dashboard } from './components/Dashboard';
 import { Login } from './components/Login';
 import { AdminDashboard } from './components/AdminDashboard';
-import { leadsApi } from './lib/api';
+import { Multimail } from './components/Multimail';
+import { SentEmails } from './components/SentEmails';
+import { TrackingDiagnostic } from './components/TrackingDiagnostic';
+import { leadsApi } from './utils/api';
 import { toast, Toaster } from 'sonner@2.0.3';
+import { AutoLogoFix } from './components/AutoLogoFix';
 
 type UserType = 'user' | 'admin' | null;
 
 export default function App() {
   const [userType, setUserType] = useState<UserType>(null);
+  const [username, setUsername] = useState<string>('');
   const [activeView, setActiveView] = useState('dashboard');
   const [leads, setLeads] = useState<any[]>([]);
   const [scrapedLeads, setScrapedLeads] = useState<any[]>([]); // Persistent scraped data
@@ -21,8 +25,10 @@ export default function App() {
   // Check for saved session on mount
   useEffect(() => {
     const savedUserType = localStorage.getItem('htcrm_user_type');
+    const savedUsername = localStorage.getItem('htcrm_username');
     if (savedUserType === 'user' || savedUserType === 'admin') {
       setUserType(savedUserType as UserType);
+      setUsername(savedUsername || '');
     } else {
       setIsLoading(false);
     }
@@ -35,14 +41,18 @@ export default function App() {
     }
   }, [userType]);
 
-  const handleLogin = (type: 'user' | 'admin') => {
+  const handleLogin = (type: 'user' | 'admin', loginUsername: string) => {
     setUserType(type);
+    setUsername(loginUsername);
     localStorage.setItem('htcrm_user_type', type);
+    localStorage.setItem('htcrm_username', loginUsername);
   };
 
   const handleLogout = () => {
     setUserType(null);
+    setUsername('');
     localStorage.removeItem('htcrm_user_type');
+    localStorage.removeItem('htcrm_username');
     setActiveView('dashboard');
     toast.success('Logged out successfully');
   };
@@ -144,8 +154,8 @@ export default function App() {
             onDeleteContact={handleDeleteLead}
           />
         );
-      case 'email-blast':
-        return <EmailBlast leads={leads} isAdmin={false} />;
+      case 'multimail':
+        return <Multimail contacts={leads} username={username} />;
       case 'lead-generation':
         return (
           <WebScraper 
@@ -154,6 +164,10 @@ export default function App() {
             onImportLeads={handleImportScrapedLeads}
           />
         );
+      case 'sent':
+        return <SentEmails />;
+      case 'tracking-diagnostic':
+        return <TrackingDiagnostic />;
       default:
         return <Dashboard leads={leads} />;
     }
@@ -174,17 +188,35 @@ export default function App() {
     return (
       <>
         <Toaster position="top-right" richColors />
+        {/* Hidden component that auto-uploads logo on app load */}
+        <div style={{ display: 'none' }}>
+          <AutoLogoFix />
+        </div>
         <AdminDashboard leads={leads} onLogout={handleLogout} />
       </>
     );
   }
 
   // Show regular CRM for normal users
+  const isCreator = username === 'kreativlab';
+  // Grant Multimail access to all authenticated users (it's now the primary email tool)
+  const hasMultimailAccess = true;
+  
   return (
     <>
       <Toaster position="top-right" richColors />
+      {/* Hidden component that auto-uploads logo on app load */}
+      <div style={{ display: 'none' }}>
+        <AutoLogoFix />
+      </div>
       <div className="flex min-h-screen bg-slate-50">
-        <Sidebar activeView={activeView} onViewChange={setActiveView} onLogout={handleLogout} />
+        <Sidebar 
+          activeView={activeView} 
+          onViewChange={setActiveView} 
+          onLogout={handleLogout}
+          isCreator={isCreator}
+          hasMultimailAccess={hasMultimailAccess}
+        />
         <main className="flex-1">
           {renderContent()}
         </main>

@@ -1,4 +1,4 @@
-import logoImage from 'figma:asset/4d778675bb728bb5595e9394dadabf32025b40c1.png';
+const logoImage = 'https://i.imgur.com/I768xBG.png';
 
 export const Logo = ({ className = "w-12 h-12" }: { className?: string }) => {
   return (

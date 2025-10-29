@@ -1,20 +1,33 @@
-import { LayoutDashboard, Mail, Search, LogOut, Users, Send } from 'lucide-react';
+import { LayoutDashboard, Mail, Search, LogOut, Users, Send, Zap, Settings, Inbox, Bug } from 'lucide-react';
 import { Button } from './ui/button';
-import logo from 'figma:asset/4d778675bb728bb5595e9394dadabf32025b40c1.png';
+import { Badge } from './ui/badge';
+const logo = 'https://i.imgur.com/I768xBG.png';
 
 interface SidebarProps {
   activeView: string;
   onViewChange: (view: string) => void;
   onLogout?: () => void;
+  isCreator?: boolean;
+  hasMultimailAccess?: boolean;
 }
 
-export function Sidebar({ activeView, onViewChange, onLogout }: SidebarProps) {
+export function Sidebar({ activeView, onViewChange, onLogout, isCreator, hasMultimailAccess }: SidebarProps) {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'contacts', label: 'Contacts Management', icon: Users },
-    { id: 'email-blast', label: 'Email Blast', icon: Send },
     { id: 'lead-generation', label: 'Lead Generation', icon: Search },
+    { id: 'sent', label: 'Sent Emails', icon: Inbox },
   ];
+  
+  // Advanced menu items for users with Multimail access
+  const advancedItems = hasMultimailAccess ? [
+    { id: 'multimail', label: 'Multimail', icon: Zap, advanced: true },
+  ] : [];
+  
+  // Debug tools for creator only
+  const debugItems = isCreator ? [
+    { id: 'tracking-diagnostic', label: 'Tracking Diagnostic', icon: Bug, debug: true },
+  ] : [];
 
   return (
     <aside className="w-64 bg-white border-r border-slate-200 flex flex-col">
@@ -53,6 +66,71 @@ export function Sidebar({ activeView, onViewChange, onLogout }: SidebarProps) {
             );
           })}
         </div>
+        
+        {/* Advanced Tools Section */}
+        {advancedItems.length > 0 && (
+          <>
+            <div className="my-4 border-t border-slate-200" />
+            <div className="mb-2">
+              <p className="text-xs text-purple-400 px-3 mb-2">{isCreator ? 'CREATOR TOOLS' : 'ADVANCED TOOLS'}</p>
+            </div>
+            <div className="space-y-1">
+              {advancedItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeView === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => onViewChange(item.id)}
+                    data-view={item.id}
+                    className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg transition-colors ${
+                      isActive
+                        ? 'bg-gradient-to-r from-purple-100 to-pink-100 text-purple-600 border-l-4 border-purple-500'
+                        : 'text-slate-600 hover:bg-gradient-to-r hover:from-purple-50 hover:to-pink-50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Icon className="w-5 h-5" />
+                      <span>{item.label}</span>
+                    </div>
+                    <Badge className="bg-purple-500 text-white text-xs">PRO</Badge>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+        
+        {/* Debug Tools Section (Creator Only) */}
+        {debugItems.length > 0 && (
+          <>
+            <div className="my-4 border-t border-slate-200" />
+            <div className="mb-2">
+              <p className="text-xs text-orange-400 px-3 mb-2">DEBUG TOOLS</p>
+            </div>
+            <div className="space-y-1">
+              {debugItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeView === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => onViewChange(item.id)}
+                    data-view={item.id}
+                    className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors ${
+                      isActive
+                        ? 'bg-orange-100 text-orange-600 border-l-4 border-orange-500'
+                        : 'text-slate-600 hover:bg-orange-50'
+                    }`}
+                  >
+                    <Icon className="w-5 h-5" />
+                    <span className="text-sm">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
       </nav>
 
       <div className="p-4 border-t border-slate-200 space-y-3">

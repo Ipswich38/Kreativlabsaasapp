@@ -1,12 +1,19 @@
 import { useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
-import { Users, Mail, Database, Server, CheckCircle2, AlertCircle, LogOut, Send, Image as ImageIcon, Copy, Check } from 'lucide-react';
+import { Users, Mail, Database, Server, CheckCircle2, AlertCircle, LogOut, Send, Image as ImageIcon, Copy, Check, Zap, Settings as SettingsIcon } from 'lucide-react';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { toast } from 'sonner@2.0.3';
 import { projectId, publicAnonKey } from '../utils/supabase/info';
-import logo from 'figma:asset/4d778675bb728bb5595e9394dadabf32025b40c1.png';
+const logo = 'https://i.imgur.com/I768xBG.png';
 import { GmailFixHelper } from './GmailFixHelper';
+import { Multimail } from './Multimail';
+import { MailgunConfigHelper } from './MailgunConfigHelper';
+import { AutoLogoFix } from './AutoLogoFix';
+import { LogoDebugPanel } from './LogoDebugPanel';
+import { SystemDiagnostic } from './SystemDiagnostic';
+import { ServerConnectionTest } from './ServerConnectionTest';
 
 interface AdminDashboardProps {
   leads: any[];
@@ -14,6 +21,7 @@ interface AdminDashboardProps {
 }
 
 export function AdminDashboard({ leads, onLogout }: AdminDashboardProps) {
+  const [activeTab, setActiveTab] = useState('system');
   const [isTesting, setIsTesting] = useState(false);
   const [logoBase64, setLogoBase64] = useState<string>('');
   const [isConverting, setIsConverting] = useState(false);
@@ -156,8 +164,8 @@ export function AdminDashboard({ leads, onLogout }: AdminDashboardProps) {
           <div className="flex items-center gap-4">
             <img src={logo} alt="Happy Teeth Logo" className="w-12 h-12 rounded-lg" />
             <div>
-              <h1 className="text-slate-900">Admin Dashboard</h1>
-              <p className="text-slate-600">System Overview & Configuration</p>
+              <h1 className="text-slate-900">Creator Dashboard</h1>
+              <p className="text-slate-600">System Overview & Advanced Tools</p>
             </div>
           </div>
           <Button onClick={onLogout} variant="outline" className="gap-2">
@@ -171,9 +179,34 @@ export function AdminDashboard({ leads, onLogout }: AdminDashboardProps) {
         {/* Admin Badge */}
         <div className="mb-6">
           <Badge className="bg-purple-100 text-purple-700 border-purple-300 px-4 py-2">
-            👑 Administrator Access - KreativLab
+            👑 Creator Access - KreativLab
           </Badge>
         </div>
+
+        {/* Tabbed Navigation */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+          <TabsList className="grid w-full grid-cols-3 mb-6">
+            <TabsTrigger value="system" className="gap-2">
+              <Server className="w-4 h-4" />
+              System Status
+            </TabsTrigger>
+            <TabsTrigger value="multimail" className="gap-2">
+              <Zap className="w-4 h-4" />
+              Multimail
+              <Badge className="bg-purple-500 text-white text-xs ml-1">PRO</Badge>
+            </TabsTrigger>
+            <TabsTrigger value="mailgun-config" className="gap-2">
+              <SettingsIcon className="w-4 h-4" />
+              Mailgun Config
+              <Badge className="bg-purple-500 text-white text-xs ml-1">PRO</Badge>
+            </TabsTrigger>
+          </TabsList>
+
+          {/* System Status Tab */}
+          <TabsContent value="system" className="space-y-6">
+
+        {/* Server Connection Test */}
+        <ServerConnectionTest />
 
         {/* System Status Card */}
         <Card className="mb-6 border-2 border-emerald-100 bg-emerald-50/50">
@@ -327,17 +360,27 @@ export function AdminDashboard({ leads, onLogout }: AdminDashboardProps) {
           </CardContent>
         </Card>
 
-        {/* Email Logo Converter */}
-        <Card className="mb-6 border-2 border-[#ff77a4]">
+        {/* Auto Logo Fix - Automatically uploads logo */}
+        <div className="mb-6">
+          <AutoLogoFix />
+        </div>
+
+        {/* System Diagnostics - Run automatic system checks */}
+        <div className="mb-6">
+          <SystemDiagnostic />
+        </div>
+
+        {/* Manual Logo Converter (Backup Option) */}
+        <Card className="mb-6 border-2 border-slate-200">
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="flex items-center gap-2 text-[#ff77a4]">
+                <CardTitle className="flex items-center gap-2 text-slate-700">
                   <ImageIcon className="w-5 h-5" />
-                  📧 Email Logo Fixer
+                  🔧 Manual Logo Tools (Advanced)
                 </CardTitle>
                 <CardDescription>
-                  Convert Happy Teeth logo to base64 for email embedding
+                  Manual base64 conversion and download - Only use if automatic upload fails
                 </CardDescription>
               </div>
               <Button
@@ -345,7 +388,7 @@ export function AdminDashboard({ leads, onLogout }: AdminDashboardProps) {
                 variant="outline"
                 size="sm"
               >
-                {showLogoConverter ? 'Hide' : 'Show'} Converter
+                {showLogoConverter ? 'Hide' : 'Show'} Tools
               </Button>
             </div>
           </CardHeader>
@@ -625,7 +668,22 @@ export function AdminDashboard({ leads, onLogout }: AdminDashboardProps) {
             </div>
           </CardContent>
         </Card>
+          </TabsContent>
+
+          {/* Multimail Tab */}
+          <TabsContent value="multimail">
+            <Multimail contacts={leads} onNavigateToConfig={() => setActiveTab('mailgun-config')} />
+          </TabsContent>
+
+          {/* Mailgun Config Tab */}
+          <TabsContent value="mailgun-config">
+            <MailgunConfigHelper />
+          </TabsContent>
+        </Tabs>
       </div>
+      
+      {/* Floating Debug Panel */}
+      <LogoDebugPanel />
     </div>
   );
 }
